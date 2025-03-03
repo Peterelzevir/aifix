@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { jwtVerify, SignJWT } from 'jose';
-import { getUserById } from '@/lib/db';
+import { getUserById, debugDumpUsers } from '@/lib/db';
 
 // Prevent caching for this route
 export const dynamic = 'force-dynamic';
@@ -44,12 +44,14 @@ function getAuthToken(request) {
   const tokenCookie = cookieStore.get('auth-token')?.value;
   
   if (tokenCookie) {
+    console.log('Token found in cookie');
     return tokenCookie;
   }
   
   // 2. Try to get token from Authorization header
   const authHeader = request.headers.get('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
+    console.log('Token found in Authorization header');
     return authHeader.substring(7);
   }
   
@@ -57,22 +59,29 @@ function getAuthToken(request) {
   const url = new URL(request.url);
   const tokenParam = url.searchParams.get('token');
   if (tokenParam) {
+    console.log('Token found in URL parameter');
     return tokenParam;
   }
   
+  console.log('No token found in request');
   return null;
 }
 
 export async function GET(request) {
   try {
-    // Track request for debugging (optional)
+    // Track request for debugging
     const clientIp = request.headers.get('x-forwarded-for') || 'unknown';
     console.log(`User verification request from IP: ${clientIp}`);
+    
+    // Debug: dump users untuk memastikan database tidak kosong
+    const users = await debugDumpUsers();
+    console.log('Current users in database:', users);
     
     // Get token from either cookie, header, or query param
     const token = getAuthToken(request);
     
     if (!token) {
+      console.log('No authentication token found');
       return NextResponse.json(
         { success: false, message: 'Tidak terautentikasi', code: 'no_token' },
         { 
@@ -81,7 +90,7 @@ export async function GET(request) {
             'WWW-Authenticate': 'Bearer realm="api"',
             'Cache-Control': 'no-store, must-revalidate',
             'Pragma': 'no-cache',
-            ...corsHeaders // Add CORS headers
+            ...corsHeaders
           }
         }
       );
@@ -90,6 +99,7 @@ export async function GET(request) {
     // Verify token with jose
     let payload;
     try {
+      console.log('Verifying JWT token');
       const { payload: verifiedPayload } = await jwtVerify(
         token, 
         getSecretKey(),
@@ -98,6 +108,7 @@ export async function GET(request) {
         }
       );
       payload = verifiedPayload;
+      console.log('Token verified successfully, payload:', payload);
     } catch (verifyError) {
       console.error('Token verification failed:', verifyError.message);
       
@@ -117,7 +128,7 @@ export async function GET(request) {
           headers: {
             'Cache-Control': 'no-store, must-revalidate',
             'Pragma': 'no-cache',
-            ...corsHeaders // Add CORS headers
+            ...corsHeaders
           }
         }
       );
@@ -126,27 +137,31 @@ export async function GET(request) {
     // Get user data from database with error handling
     let user;
     try {
+      console.log('Getting user data for ID:', payload.id);
       user = await getUserById(payload.id);
+      console.log('User data retrieved:', user ? 'Success' : 'Not found');
     } catch (dbError) {
       console.error('Database error when fetching user:', dbError);
       return NextResponse.json(
         { success: false, message: 'Gagal mengambil data pengguna', code: 'database_error' },
-        { status: 500, headers: corsHeaders } // Add CORS headers
+        { status: 500, headers: corsHeaders }
       );
     }
     
     if (!user) {
+      console.log('User not found for ID:', payload.id);
       return NextResponse.json(
         { success: false, message: 'User tidak ditemukan', code: 'user_not_found' },
-        { status: 404, headers: corsHeaders } // Add CORS headers
+        { status: 404, headers: corsHeaders }
       );
     }
     
     // Check if account is disabled (if your user model has this field)
     if (user.status === 'disabled' || user.status === 'suspended') {
+      console.log('Account is disabled/suspended:', user.id);
       return NextResponse.json(
         { success: false, message: 'Akun tidak aktif', code: 'account_inactive' },
-        { status: 403, headers: corsHeaders } // Add CORS headers
+        { status: 403, headers: corsHeaders }
       );
     }
     
@@ -159,12 +174,15 @@ export async function GET(request) {
     // Create new token if refresh is needed
     if (needsRefresh) {
       try {
+        console.log('Refreshing token for user:', user.id);
         refreshedToken = await refreshToken(user);
       } catch (refreshError) {
         console.error('Token refresh error:', refreshError);
         // Continue without refreshed token
       }
     }
+    
+    console.log('Creating successful response for user:', user.id);
     
     // Create response with user data
     const response = NextResponse.json({
@@ -174,15 +192,16 @@ export async function GET(request) {
         name: user.name,
         email: user.email,
         // Add any other non-sensitive user data here that frontend needs
-        ...(user.lastLogin && { lastLogin: user.lastLogin }),
+        ...(user.lastLogin && { lastLogin: user.lastLoginAt }),
         ...(user.avatar && { avatar: user.avatar }),
         ...(user.role && { role: user.role }),
       },
       tokenRefreshed: !!refreshedToken
-    }, { headers: corsHeaders }); // Add CORS headers
+    }, { headers: corsHeaders });
     
     // If token was refreshed, update the cookie
     if (refreshedToken) {
+      console.log('Setting refreshed token in cookie');
       response.cookies.set({
         name: 'auth-token',
         value: refreshedToken,
@@ -206,6 +225,7 @@ export async function GET(request) {
       response.headers.set(key, value);
     });
     
+    console.log('Auth verification successful for user:', user.id);
     return response;
   } catch (error) {
     console.error('Auth verification error:', error);
@@ -215,7 +235,7 @@ export async function GET(request) {
         message: 'Terjadi kesalahan saat verifikasi', 
         code: 'server_error'
       },
-      { status: 500, headers: corsHeaders } // Add CORS headers
+      { status: 500, headers: corsHeaders }
     );
   }
 }
