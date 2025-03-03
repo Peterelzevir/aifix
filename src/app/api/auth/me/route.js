@@ -16,6 +16,23 @@ const JWT_SECRET = process.env.JWT_SECRET || 'ai-peter-secret-key-change-this';
 // Siapkan secret key dalam format yang diperlukan jose
 const getSecretKey = () => new TextEncoder().encode(JWT_SECRET);
 
+// CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+/**
+ * Handler OPTIONS untuk CORS preflight requests
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders,
+  });
+}
+
 /**
  * Extract token from various sources
  * @param {Request} request - Next.js request object
@@ -63,7 +80,8 @@ export async function GET(request) {
           headers: {
             'WWW-Authenticate': 'Bearer realm="api"',
             'Cache-Control': 'no-store, must-revalidate',
-            'Pragma': 'no-cache'
+            'Pragma': 'no-cache',
+            ...corsHeaders // Add CORS headers
           }
         }
       );
@@ -98,7 +116,8 @@ export async function GET(request) {
           status: 401,
           headers: {
             'Cache-Control': 'no-store, must-revalidate',
-            'Pragma': 'no-cache'
+            'Pragma': 'no-cache',
+            ...corsHeaders // Add CORS headers
           }
         }
       );
@@ -112,14 +131,14 @@ export async function GET(request) {
       console.error('Database error when fetching user:', dbError);
       return NextResponse.json(
         { success: false, message: 'Gagal mengambil data pengguna', code: 'database_error' },
-        { status: 500 }
+        { status: 500, headers: corsHeaders } // Add CORS headers
       );
     }
     
     if (!user) {
       return NextResponse.json(
         { success: false, message: 'User tidak ditemukan', code: 'user_not_found' },
-        { status: 404 }
+        { status: 404, headers: corsHeaders } // Add CORS headers
       );
     }
     
@@ -127,7 +146,7 @@ export async function GET(request) {
     if (user.status === 'disabled' || user.status === 'suspended') {
       return NextResponse.json(
         { success: false, message: 'Akun tidak aktif', code: 'account_inactive' },
-        { status: 403 }
+        { status: 403, headers: corsHeaders } // Add CORS headers
       );
     }
     
@@ -160,7 +179,7 @@ export async function GET(request) {
         ...(user.role && { role: user.role }),
       },
       tokenRefreshed: !!refreshedToken
-    });
+    }, { headers: corsHeaders }); // Add CORS headers
     
     // If token was refreshed, update the cookie
     if (refreshedToken) {
@@ -182,6 +201,11 @@ export async function GET(request) {
     response.headers.set('Cache-Control', 'no-store, must-revalidate');
     response.headers.set('Pragma', 'no-cache');
     
+    // Make sure CORS headers are preserved
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+    
     return response;
   } catch (error) {
     console.error('Auth verification error:', error);
@@ -191,7 +215,7 @@ export async function GET(request) {
         message: 'Terjadi kesalahan saat verifikasi', 
         code: 'server_error'
       },
-      { status: 500 }
+      { status: 500, headers: corsHeaders } // Add CORS headers
     );
   }
 }
