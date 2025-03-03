@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyCredentials } from '@/lib/db';
 import { cookies } from 'next/headers';
-import { sign } from 'jsonwebtoken';
+import { SignJWT } from 'jose'; // Ganti jsonwebtoken dengan jose
 
 // Secret key untuk JWT - gunakan .env di aplikasi nyata
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-peter-secret-key-change-this';
@@ -49,18 +49,21 @@ export async function POST(request) {
       );
     }
     
-    // Buat JWT token
+    // Buat JWT token dengan jose library
     let token;
     try {
-      token = sign(
-        { 
+      // jose memerlukan secret key dalam bentuk Uint8Array
+      const secretKey = new TextEncoder().encode(JWT_SECRET);
+      
+      token = await new SignJWT({ 
           id: user.id, 
           email: user.email,
           name: user.name 
-        },
-        JWT_SECRET,
-        { expiresIn: '7d' } // Token berlaku 7 hari
-      );
+        })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('7d') // Token berlaku 7 hari
+        .sign(secretKey);
     } catch (jwtError) {
       console.error('Error signing JWT:', jwtError);
       return NextResponse.json(
