@@ -10,11 +10,12 @@ import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 
 export default function ChatPage() {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
+  const [authChecked, setAuthChecked] = useState(false);
   
   // Handle window size safely in client-side
   useEffect(() => {
@@ -35,13 +36,20 @@ export default function ChatPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Tindak lanjuti perubahan status loading dan isAuthenticated
   useEffect(() => {
-    if (!loading) {
-      if (!isAuthenticated()) {
+    // Hanya jalankan logika ini ketika loading selesai dan authChecked masih false
+    if (!loading && !authChecked) {
+      const authenticated = !!user; // Periksa apakah user ada
+      
+      if (!authenticated) {
         setShowWarning(true);
       }
+      
+      // Tandai bahwa pengecekan auth sudah dilakukan
+      setAuthChecked(true);
     }
-  }, [isAuthenticated, loading]);
+  }, [loading, user, authChecked]);
 
   // Countdown effect
   useEffect(() => {
@@ -55,6 +63,11 @@ export default function ChatPage() {
       router.push('/login');
     }
   }, [countdown, router, showWarning]);
+
+  // Fungsi untuk memeriksa status autentikasi
+  const isAuthenticated = () => {
+    return !!user; // Menggunakan double negasi untuk mengubah nilai menjadi boolean
+  };
 
   // Loading state
   if (loading) {
