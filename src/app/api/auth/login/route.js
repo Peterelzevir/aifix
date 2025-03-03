@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { verifyCredentials } from '@/lib/db';
+import { getUserById } from '@/lib/db';
 import { cookies } from 'next/headers';
-import { SignJWT } from 'jose'; // Ganti jsonwebtoken dengan jose
+import { jwtVerify } from 'jose';
 
 // Secret key untuk JWT - gunakan .env di aplikasi nyata
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-peter-secret-key-change-this';
@@ -9,154 +9,95 @@ const JWT_SECRET = process.env.JWT_SECRET || 'ai-peter-secret-key-change-this';
 // Edge Runtime compatibility
 export const runtime = 'edge';
 
+// CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 /**
- * Validasi format email yang lebih baik
+ * Handler OPTIONS untuk CORS preflight requests
  */
-function isValidEmail(email) {
-  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  return emailRegex.test(email);
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders,
+  });
 }
 
-export async function POST(request) {
+/**
+ * Verifikasi token JWT
+ */
+async function verifyToken(token) {
   try {
-    // Parse request dengan error handling yang lebih baik
-    let body;
-    try {
-      body = await request.json();
-    } catch (parseError) {
-      console.error('Error parsing login request:', parseError);
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'Format permintaan tidak valid'
-        },
-        { status: 400 }
-      );
+    const secretKey = new TextEncoder().encode(JWT_SECRET);
+    const { payload } = await jwtVerify(token, secretKey);
+    return payload;
+  } catch (error) {
+    console.error('JWT verification error:', error);
+    return null;
+  }
+}
+
+export async function GET(request) {
+  try {
+    // Ambil token dari cookie atau header Authorization
+    const cookieStore = cookies();
+    let token = cookieStore.get('auth-token')?.value;
+
+    // Jika tidak ada di cookie, coba cek di header Authorization
+    if (!token) {
+      const authHeader = request.headers.get('Authorization');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      }
     }
-    
-    // Ekstrak data dengan nilai default untuk remember
-    const { email, password, remember = false } = body;
-    
-    // Validasi data yang lebih lengkap
-    if (!email || !password) {
+
+    // Jika token tidak ditemukan
+    if (!token) {
       return NextResponse.json(
-        { success: false, message: 'Email dan password harus diisi' },
-        { status: 400 }
+        { success: false, message: 'Tidak terautentikasi' },
+        { status: 401, headers: corsHeaders }
       );
     }
 
-    // Validasi format email
-    if (!isValidEmail(email)) {
+    // Verifikasi token
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json(
-        { success: false, message: 'Format email tidak valid' },
-        { status: 400 }
+        { success: false, message: 'Token tidak valid' },
+        { status: 401, headers: corsHeaders }
       );
     }
-    
-    // Verifikasi kredensial dengan error handling
-    let user;
-    try {
-      // Normalisasi email menjadi lowercase sebelum verifikasi
-      user = await verifyCredentials(email.toLowerCase(), password);
-    } catch (verifyError) {
-      console.error('Error verifying credentials:', verifyError);
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'Gagal memverifikasi kredensial'
-        },
-        { status: 500 }
-      );
-    }
-    
+
+    // Ambil data user berdasarkan ID dari payload token
+    const user = await getUserById(payload.id);
     if (!user) {
       return NextResponse.json(
-        { success: false, message: 'Email atau password salah' },
-        { status: 401 }
+        { success: false, message: 'User tidak ditemukan' },
+        { status: 404, headers: corsHeaders }
       );
     }
-    
-    // Tentukan masa berlaku token berdasarkan "remember me"
-    const tokenExpiry = remember ? '30d' : '1d'; // 30 hari jika remember, 1 hari jika tidak
-    const cookieMaxAge = remember ? 60 * 60 * 24 * 30 : 60 * 60 * 24; // Detik
-    
-    // Buat JWT token dengan jose library
-    let token;
-    try {
-      // jose memerlukan secret key dalam bentuk Uint8Array
-      const secretKey = new TextEncoder().encode(JWT_SECRET);
-      
-      token = await new SignJWT({ 
-          id: user.id, 
-          email: user.email,
-          name: user.name,
-          // Tambahkan waktu saat token dibuat untuk validasi tambahan jika diperlukan
-          iat: Math.floor(Date.now() / 1000)
-        })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .setExpirationTime(tokenExpiry)
-        .sign(secretKey);
-    } catch (jwtError) {
-      console.error('Error signing JWT:', jwtError);
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'Gagal membuat token otentikasi'
-        },
-        { status: 500 }
-      );
-    }
-    
-    // Buat response dasar
-    const response = NextResponse.json({
-      success: true,
-      message: 'Login berhasil',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      },
-      token: token // Client-side fallback
-    });
-    
-    // Set token ke cookie dengan opsi yang disesuaikan dengan "remember me"
-    try {
-      response.cookies.set({
-        name: 'auth-token',
-        value: token,
-        httpOnly: true,
-        maxAge: cookieMaxAge,
-        path: '/',
-        secure: process.env.NODE_ENV === 'production', // Hanya HTTPS di production
-        sameSite: 'lax'
-      });
-      
-      // Cookie tambahan untuk frontend yang non-httpOnly (opsional)
-      response.cookies.set({
-        name: 'user-logged-in',
-        value: 'true',
-        httpOnly: false, // Dapat diakses oleh JavaScript
-        maxAge: cookieMaxAge,
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-      });
-    } catch (cookieError) {
-      console.error('Error setting cookie:', cookieError);
-      // Masih lanjutkan karena kita masih mengembalikan token di body
-    }
-    
-    return response;
-    
-  } catch (error) {
-    console.error('Login error:', error);
+
+    // Return data user
     return NextResponse.json(
       { 
-        success: false, 
-        message: 'Terjadi kesalahan saat login'
+        success: true, 
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          // Tambahkan field lain yang diperlukan tanpa data sensitif
+        } 
       },
-      { status: 500 }
+      { status: 200, headers: corsHeaders }
+    );
+  } catch (error) {
+    console.error('Get user data error:', error);
+    return NextResponse.json(
+      { success: false, message: 'Terjadi kesalahan saat mengambil data user' },
+      { status: 500, headers: corsHeaders }
     );
   }
 }
