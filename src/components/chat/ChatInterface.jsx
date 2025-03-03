@@ -19,17 +19,33 @@ import { saveConversationForSharing } from '@/lib/api';
 import Image from 'next/image';
 
 export default function ChatInterface() {
-  const {
-    messages,
-    isProcessing,
-    isVoiceMode,
-    conversationId,
-    clearConversation,
-    toggleVoiceMode,
-    generateShareableLink,
-  } = useChatContext();
+  // Tambahkan pengecekan nilai context yang null/undefined
+  const chatContext = useChatContext();
   
-  const { user, logout } = useAuth();
+  // Jika context tidak tersedia, tampilkan UI loading
+  if (!chatContext) {
+    return <div className="flex items-center justify-center h-screen text-primary-200">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-400 mx-auto mb-4"></div>
+        <p>Loading chat interface...</p>
+      </div>
+    </div>;
+  }
+  
+  // Destructure hanya setelah memastikan context ada
+  const {
+    messages = [],
+    isProcessing = false,
+    isVoiceMode = false,
+    conversationId = '',
+    clearConversation = () => {},
+    toggleVoiceMode = () => {},
+    generateShareableLink = () => '',
+  } = chatContext;
+  
+  // Tambahkan pengecekan serupa untuk auth context
+  const authContext = useAuth();
+  const { user = null, logout = () => {} } = authContext || {};
   
   // UI States
   const [shareUrl, setShareUrl] = useState('');
@@ -76,7 +92,8 @@ export default function ChatInterface() {
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    if (chatContainerRef.current) {
+    // Tambahkan pengecekan untuk messages
+    if (chatContainerRef.current && messages && messages.length > 0) {
       const { scrollHeight, clientHeight } = chatContainerRef.current;
       chatContainerRef.current.scrollTop = scrollHeight - clientHeight;
     }
@@ -126,11 +143,11 @@ export default function ChatInterface() {
   };
   
   // Filter messages based on search
-  const filteredMessages = searchQuery.trim() 
+  const filteredMessages = messages && searchQuery.trim() 
     ? messages.filter(msg => 
         msg.content.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : messages;
+    : messages || [];
 
   // Handle logout
   const handleLogout = async () => {
@@ -445,7 +462,7 @@ export default function ChatInterface() {
             ref={chatContainerRef}
             className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4 bg-primary-700"
           >
-            {filteredMessages.length === 0 ? (
+            {!filteredMessages || filteredMessages.length === 0 ? (
               <div className="h-full flex items-center justify-center">
                 {searchQuery ? (
                   <div className="text-center px-4 py-8 rounded-lg bg-primary-800/50">
