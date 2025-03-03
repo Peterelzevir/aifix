@@ -10,11 +10,10 @@
  * Compatible with Vercel and Netlify serverless environments and Edge Runtime.
  */
 
-import * as fs from 'fs';
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'fs/promises';
+import path from 'path';
 import bcrypt from 'bcryptjs';
-
+import { fileURLToPath } from 'url';
 //const
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
