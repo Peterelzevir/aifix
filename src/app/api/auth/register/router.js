@@ -12,6 +12,23 @@ const getSecretKey = () => new TextEncoder().encode(JWT_SECRET);
 // Edge Runtime compatibility
 export const runtime = 'edge';
 
+// CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+/**
+ * Handler OPTIONS untuk CORS preflight requests
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders,
+  });
+}
+
 /**
  * Validasi format email yang lebih baik
  */
@@ -33,7 +50,7 @@ export async function POST(request) {
       console.error('Error parsing request JSON:', parseError);
       return NextResponse.json(
         { success: false, message: 'Format permintaan tidak valid' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -43,7 +60,7 @@ export async function POST(request) {
     if (!name || !email || !password) {
       return NextResponse.json(
         { success: false, message: 'Semua kolom harus diisi' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -55,7 +72,7 @@ export async function POST(request) {
     if (!isValidEmail(normalizedEmail)) {
       return NextResponse.json(
         { success: false, message: 'Format email tidak valid' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -63,7 +80,7 @@ export async function POST(request) {
     if (password.length < 6) {
       return NextResponse.json(
         { success: false, message: 'Password minimal 6 karakter' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -75,14 +92,14 @@ export async function POST(request) {
       console.error('Check user error:', checkError);
       return NextResponse.json(
         { success: false, message: 'Gagal memeriksa data pengguna' },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     
     if (existingUser) {
       return NextResponse.json(
         { success: false, message: 'Email sudah terdaftar' },
-        { status: 409 } // Gunakan kode 409 Conflict untuk email yang sudah ada
+        { status: 409, headers: corsHeaders } // Gunakan kode 409 Conflict untuk email yang sudah ada
       );
     }
     
@@ -98,14 +115,14 @@ export async function POST(request) {
       console.error('Create user error:', createError);
       return NextResponse.json(
         { success: false, message: 'Gagal membuat pengguna baru' },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     
     if (!user || !user.id) {
       return NextResponse.json(
         { success: false, message: 'Gagal membuat pengguna' },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     
@@ -127,11 +144,11 @@ export async function POST(request) {
       console.error('Error signing JWT:', jwtError);
       return NextResponse.json(
         { success: false, message: 'Gagal membuat token otentikasi' },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     
-    // Buat response dengan cookie
+    // Buat response dengan cookie dan CORS headers
     const response = NextResponse.json(
       { 
         success: true, 
@@ -143,7 +160,7 @@ export async function POST(request) {
         },
         token // Kirim token untuk client-side storage
       },
-      { status: 201 }
+      { status: 201, headers: corsHeaders }
     );
     
     // Set token ke cookie
@@ -178,7 +195,7 @@ export async function POST(request) {
     console.error('Registration error:', error);
     return NextResponse.json(
       { success: false, message: 'Terjadi kesalahan saat mendaftar' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
