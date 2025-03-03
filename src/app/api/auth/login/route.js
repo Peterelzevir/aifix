@@ -1,103 +1,105 @@
 import { NextResponse } from 'next/server';
-import { getUserById } from '@/lib/db';
+import { verifyCredentials } from '@/lib/db';
 import { cookies } from 'next/headers';
-import { jwtVerify } from 'jose';
+import { sign } from 'jsonwebtoken';
 
 // Secret key untuk JWT - gunakan .env di aplikasi nyata
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-peter-secret-key-change-this';
 
-// Edge Runtime compatibility
-export const runtime = 'edge';
-
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-/**
- * Handler OPTIONS untuk CORS preflight requests
- */
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: corsHeaders,
-  });
-}
-
-/**
- * Verifikasi token JWT
- */
-async function verifyToken(token) {
+export async function POST(request) {
   try {
-    const secretKey = new TextEncoder().encode(JWT_SECRET);
-    const { payload } = await jwtVerify(token, secretKey);
-    return payload;
-  } catch (error) {
-    console.error('JWT verification error:', error);
-    return null;
-  }
-}
-
-export async function GET(request) {
-  try {
-    // Ambil token dari cookie atau header Authorization
-    const cookieStore = cookies();
-    let token = cookieStore.get('auth-token')?.value;
-
-    // Jika tidak ada di cookie, coba cek di header Authorization
-    if (!token) {
-      const authHeader = request.headers.get('Authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      }
-    }
-
-    // Jika token tidak ditemukan
-    if (!token) {
+    // Parse request dengan error handling
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseError) {
+      console.error('Error parsing login request:', parseError);
       return NextResponse.json(
-        { success: false, message: 'Tidak terautentikasi' },
-        { status: 401, headers: corsHeaders }
+        { success: false, message: 'Format permintaan tidak valid' },
+        { status: 400 }
       );
     }
-
-    // Verifikasi token
-    const payload = await verifyToken(token);
-    if (!payload) {
+    
+    const { email, password } = body;
+    
+    // Validasi data
+    if (!email || !password) {
       return NextResponse.json(
-        { success: false, message: 'Token tidak valid' },
-        { status: 401, headers: corsHeaders }
+        { success: false, message: 'Email dan password harus diisi' },
+        { status: 400 }
       );
     }
-
-    // Ambil data user berdasarkan ID dari payload token
-    const user = await getUserById(payload.id);
+    
+    // Verifikasi kredensial dengan error handling
+    let user;
+    try {
+      user = await verifyCredentials(email, password);
+    } catch (verifyError) {
+      console.error('Error verifying credentials:', verifyError);
+      return NextResponse.json(
+        { success: false, message: 'Gagal memverifikasi kredensial' },
+        { status: 500 }
+      );
+    }
+    
     if (!user) {
       return NextResponse.json(
-        { success: false, message: 'User tidak ditemukan' },
-        { status: 404, headers: corsHeaders }
+        { success: false, message: 'Email atau password salah' },
+        { status: 401 }
       );
     }
-
-    // Return data user
-    return NextResponse.json(
-      { 
-        success: true, 
-        user: {
-          id: user.id,
-          name: user.name,
+    
+    // Buat JWT token
+    let token;
+    try {
+      token = sign(
+        { 
+          id: user.id, 
           email: user.email,
-          // Tambahkan field lain yang diperlukan tanpa data sensitif
-        } 
+          name: user.name 
+        },
+        JWT_SECRET,
+        { expiresIn: '7d' } // Token berlaku 7 hari
+      );
+    } catch (jwtError) {
+      console.error('Error signing JWT:', jwtError);
+      return NextResponse.json(
+        { success: false, message: 'Gagal membuat token otentikasi' },
+        { status: 500 }
+      );
+    }
+    
+    // Set token ke cookie
+    try {
+      const cookieStore = cookies();
+      cookieStore.set('auth-token', token, {
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7, // 7 hari
+        path: '/',
+        secure: process.env.NODE_ENV === 'production', // Hanya HTTPS di production
+        sameSite: 'lax',
+      });
+    } catch (cookieError) {
+      console.error('Error setting cookie:', cookieError);
+      // Masih kembalikan token untuk client-side storage fallback
+    }
+    
+    // Kembalikan token di JSON juga untuk client-side storage
+    return NextResponse.json({
+      success: true,
+      message: 'Login berhasil',
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
       },
-      { status: 200, headers: corsHeaders }
-    );
+      token: token // Client-side fallback
+    });
   } catch (error) {
-    console.error('Get user data error:', error);
+    console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, message: 'Terjadi kesalahan saat mengambil data user' },
-      { status: 500, headers: corsHeaders }
+      { success: false, message: 'Terjadi kesalahan saat login' },
+      { status: 500 }
     );
   }
 }
