@@ -10,6 +10,12 @@
  * Compatible with Vercel and Netlify serverless environments.
  */
 
+// Global in-memory storage for Edge Runtime (perbaikan paling penting)
+// Mencegah data hilang antar request selama server berjalan
+const EDGE_RUNTIME_STORAGE = {
+  next_users_db: JSON.stringify([])
+};
+
 // Simple string hash function yang bekerja di Edge Runtime
 // Tidak menggunakan module crypto sama sekali
 async function hashPassword(password) {
@@ -59,13 +65,13 @@ function getStorage() {
   if (typeof globalThis.localStorage === 'undefined') {
     // Edge Runtime & Server environment
     return {
-      async getItem() {
-        // Initialize with empty array if no data exists
-        return JSON.stringify([]);
+      async getItem(key) {
+        // PERBAIKAN: Menggunakan EDGE_RUNTIME_STORAGE untuk menyimpan data
+        return EDGE_RUNTIME_STORAGE[key] || JSON.stringify([]);
       },
       async setItem(key, value) {
-        // No persistent storage in Edge without additional services
-        // This is a placeholder for where you would implement Vercel KV, Redis, etc.
+        // PERBAIKAN: Menyimpan data ke EDGE_RUNTIME_STORAGE
+        EDGE_RUNTIME_STORAGE[key] = value;
         return true;
       }
     };
@@ -184,6 +190,40 @@ function sanitizeUser(user) {
 }
 
 /**
+ * Menambahkan user awal jika database kosong (untuk demo)
+ */
+async function seedInitialUsers() {
+  try {
+    const users = await readDb();
+    
+    // Jika sudah ada user, tidak perlu tambah lagi
+    if (users.length > 0) {
+      return;
+    }
+    
+    // Tambahkan user demo
+    const demoUser = {
+      id: 'user_demo_1',
+      name: 'Demo User',
+      email: 'demo@example.com',
+      password: await hashPassword('password123'),
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    console.log('Menambahkan user demo ke database');
+    users.push(demoUser);
+    await writeDb(users);
+  } catch (error) {
+    console.error('Error seeding initial users:', error);
+  }
+}
+
+// Jalankan seeding saat module di-import
+seedInitialUsers().catch(console.error);
+
+/**
  * Check if user exists by email (case insensitive)
  * @param {string} email - Email to check
  * @returns {Promise<boolean>} True if user exists
@@ -225,7 +265,10 @@ export async function getUserByEmail(email) {
   
   try {
     const users = await readDb();
-    return users.find(user => user.email.toLowerCase() === email.toLowerCase()) || null;
+    // PERBAIKAN: Memastikan email dinormalisasi
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = users.find(user => user.email.toLowerCase() === normalizedEmail) || null;
+    return user;
   } catch (error) {
     console.error('Error getting user by email:', error);
     return null;
@@ -273,8 +316,11 @@ export async function createUser(userData) {
   try {
     const users = await readDb(true); // Skip cache to ensure fresh data
     
+    // PERBAIKAN: Pastikan email dinormalisasi
+    const normalizedEmail = userData.email.trim().toLowerCase();
+    
     // Check if email already exists
-    if (users.some(user => user.email.toLowerCase() === userData.email.toLowerCase())) {
+    if (users.some(user => user.email.toLowerCase() === normalizedEmail)) {
       throw new Error('Email sudah terdaftar');
     }
     
@@ -291,16 +337,22 @@ export async function createUser(userData) {
     const newUser = {
       id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       name: userData.name.trim(),
-      email: userData.email.toLowerCase().trim(),
+      email: normalizedEmail,
       password: hashedPassword,
       status: 'active', // Default status
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     
+    console.log('Menambahkan user baru:', newUser.email);
+    
     // Save user to database
     users.push(newUser);
     await writeDb(users);
+    
+    // PERBAIKAN: Dump database setelah register untuk debug
+    const updatedUsers = await readDb(true);
+    console.log(`Database sekarang berisi ${updatedUsers.length} user(s)`);
     
     // Return user without password
     return sanitizeUser(newUser);
@@ -371,9 +423,14 @@ export async function verifyCredentials(email, password) {
   }
   
   try {
-    const user = await getUserByEmail(email);
+    // PERBAIKAN: Pastikan email dinormalisasi
+    const normalizedEmail = email.trim().toLowerCase();
+    console.log('Verifying credentials for:', normalizedEmail);
+    
+    const user = await getUserByEmail(normalizedEmail);
     
     if (!user) {
+      console.log('User not found:', normalizedEmail);
       return null;
     }
     
@@ -385,6 +442,7 @@ export async function verifyCredentials(email, password) {
     
     // Verify password
     const passwordMatch = await verifyPassword(password, user.password);
+    console.log('Password match result:', passwordMatch);
     
     if (!passwordMatch) {
       return null;
@@ -507,4 +565,18 @@ export async function resetPassword(email, newPassword) {
 export function clearCache() {
   userCache = null;
   lastCacheTime = 0;
+}
+
+// Expor fungsi lain yang mungkin Anda butuhkan
+export function debugDumpUsers() {
+  return readDb(true).then(users => {
+    return users.map(user => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      hasPassword: !!user.password,
+      status: user.status,
+      createdAt: user.createdAt
+    }));
+  });
 }
