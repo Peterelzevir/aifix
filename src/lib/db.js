@@ -10,7 +10,37 @@
  * Compatible with Vercel and Netlify serverless environments.
  */
 
-import bcrypt from 'bcryptjs';
+// Gunakan subtle crypto API yang kompatibel dengan Edge Runtime
+const getCrypto = () => {
+  // Di browser atau Edge Runtime
+  if (typeof window !== 'undefined' && window.crypto) return window.crypto.subtle;
+  // Di Edge Runtime tanpa window (global crypto)
+  if (typeof crypto !== 'undefined') return crypto.subtle;
+  // Fallback untuk Node.js di API Routes
+  try {
+    return (require('crypto') || {}).webcrypto?.subtle;
+  } catch (e) {
+    // Fallback terakhir jika tidak ada
+    console.warn('Crypto not available, using fallback implementation');
+    return null;
+  }
+};
+
+// Implementasi hash password sederhana untuk Edge Runtime
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await getCrypto().digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// Fungsi verifikasi password
+async function verifyPassword(password, hashedPassword) {
+  const newHash = await hashPassword(password);
+  return newHash === hashedPassword;
+}
 
 // In-memory cache to reduce storage operations
 let userCache = null;
@@ -251,7 +281,7 @@ export async function createUser(userData) {
     // Hash password
     let hashedPassword;
     try {
-      hashedPassword = await bcrypt.hash(userData.password, 10);
+      hashedPassword = await hashPassword(userData.password);
     } catch (hashError) {
       console.error('Password hashing failed:', hashError);
       throw new Error('Gagal memproses password');
@@ -308,7 +338,7 @@ export async function updateUser(userId, updateData) {
     
     // Update password if provided
     if (updateData.password) {
-      updateData.password = await bcrypt.hash(updateData.password, 10);
+      updateData.password = await hashPassword(updateData.password);
     }
     
     // Update user
@@ -354,7 +384,7 @@ export async function verifyCredentials(email, password) {
     }
     
     // Verify password
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = await verifyPassword(password, user.password);
     
     if (!passwordMatch) {
       return null;
@@ -458,7 +488,7 @@ export async function resetPassword(email, newPassword) {
     }
     
     // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await hashPassword(newPassword);
     
     // Update user
     users[userIndex].password = hashedPassword;
