@@ -46,7 +46,7 @@ async function verifyPassword(password, hashedPassword) {
 // In-memory cache to reduce storage operations
 let userCache = null;
 let lastCacheTime = 0;
-const CACHE_TTL = 60000; // 1 minute cache TTL
+const CACHE_TTL = 10000; // Reduce to 10 seconds for development to refresh more often
 
 // Prefix for storage keys
 const STORAGE_KEY = 'next_users_db';
@@ -183,6 +183,7 @@ function validateUserData(userData) {
 function sanitizeUser(user) {
   if (!user) return null;
   
+  // Create a shallow copy and remove password field using destructuring
   const { password, ...userWithoutPassword } = user;
   return userWithoutPassword;
 }
@@ -265,11 +266,12 @@ export async function getUserByEmail(email) {
   if (!email) return null;
   
   try {
-    const users = await readDb();
+    const users = await readDb(true); // Selalu refresh dari storage untuk mendapatkan data terbaru
     // Ensure email is normalized
     const normalizedEmail = email.trim().toLowerCase();
-    const user = users.find(user => user.email.toLowerCase() === normalizedEmail) || null;
-    return user;
+    const user = users.find(user => user.email.toLowerCase() === normalizedEmail);
+    console.log(`getUserByEmail: Looking for ${normalizedEmail}, Found:`, user ? 'Yes' : 'No');
+    return user || null;
   } catch (error) {
     console.error('Error getting user by email:', error);
     return null;
@@ -285,8 +287,10 @@ export async function getUserById(id) {
   if (!id) return null;
   
   try {
-    const users = await readDb();
+    const users = await readDb(true); // Selalu refresh dari storage untuk mendapatkan data terbaru
     const user = users.find(user => user.id === id);
+    
+    console.log(`getUserById: Looking for ID ${id}, Found:`, user ? 'Yes' : 'No');
     
     if (!user) return null;
     
@@ -353,7 +357,8 @@ export async function createUser(userData) {
     
     // Debug: Dump database after registration
     const updatedUsers = await readDb(true);
-    console.log(`Database now contains ${updatedUsers.length} user(s)`);
+    console.log(`Database now contains ${updatedUsers.length} user(s):`, 
+      updatedUsers.map(u => ({ id: u.id, email: u.email, name: u.name })));
     
     // Return user without password
     return sanitizeUser(newUser);
@@ -428,7 +433,9 @@ export async function verifyCredentials(email, password) {
     const normalizedEmail = email.trim().toLowerCase();
     console.log('Verifying credentials for:', normalizedEmail);
     
-    const user = await getUserByEmail(normalizedEmail);
+    // Selalu refresh database untuk memastikan data terbaru
+    const users = await readDb(true);
+    const user = users.find(u => u.email.toLowerCase() === normalizedEmail);
     
     if (!user) {
       console.log('User not found:', normalizedEmail);
@@ -451,7 +458,6 @@ export async function verifyCredentials(email, password) {
     
     // Update last login time
     try {
-      const users = await readDb(true); // Skip cache to ensure fresh data
       const userIndex = users.findIndex(u => u.id === user.id);
       
       if (userIndex !== -1) {
@@ -571,6 +577,7 @@ export function clearCache() {
 // Export other functions you might need
 export function debugDumpUsers() {
   return readDb(true).then(users => {
+    console.log("Full user database:", users);
     return users.map(user => ({
       id: user.id,
       email: user.email,
