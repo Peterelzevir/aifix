@@ -10,30 +10,30 @@
  * Compatible with Vercel and Netlify serverless environments.
  */
 
-// Gunakan subtle crypto API yang kompatibel dengan Edge Runtime
-const getCrypto = () => {
-  // Di browser atau Edge Runtime
-  if (typeof window !== 'undefined' && window.crypto) return window.crypto.subtle;
-  // Di Edge Runtime tanpa window (global crypto)
-  if (typeof crypto !== 'undefined') return crypto.subtle;
-  // Fallback untuk Node.js di API Routes
-  try {
-    return (require('crypto') || {}).webcrypto?.subtle;
-  } catch (e) {
-    // Fallback terakhir jika tidak ada
-    console.warn('Crypto not available, using fallback implementation');
-    return null;
-  }
-};
-
-// Implementasi hash password sederhana untuk Edge Runtime
+// Simple string hash function yang bekerja di Edge Runtime
+// Tidak menggunakan module crypto sama sekali
 async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await getCrypto().digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  if (!password) return '';
+  
+  // Implementasi hash sederhana untuk demo
+  // Untuk produksi sebaiknya gunakan library yang aman
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  // Buat hash lebih kompleks dengan salt
+  const salt = 'vercel-edge-' + (new Date().getFullYear());
+  const saltedHash = hash + salt;
+  
+  // Convert ke string hex
+  return Array.from(saltedHash.toString())
+    .reduce((str, char) => {
+      const hex = char.charCodeAt(0).toString(16);
+      return str + hex;
+    }, '');
 }
 
 // Fungsi verifikasi password
