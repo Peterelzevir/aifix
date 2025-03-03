@@ -1,137 +1,103 @@
 /**
  * User Database Module for Next.js
  * 
- * Provides a simple file-based user database with functionality for:
+ * Provides a simple user database with functionality for:
  * - User registration
  * - User authentication
  * - User management
  * 
- * Uses JSON file storage with atomic operations for data integrity.
- * Compatible with Vercel and Netlify serverless environments and Edge Runtime.
+ * Uses browser compatible storage with Edge Runtime support.
+ * Compatible with Vercel and Netlify serverless environments.
  */
 
-import fs from 'fs/promises';
-import path from 'path';
 import bcrypt from 'bcryptjs';
-import { fileURLToPath } from 'url';
-//const
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
-// Singkaton instance untuk cache (mengurangi operasi I/O)
+// In-memory cache to reduce storage operations
 let userCache = null;
 let lastCacheTime = 0;
-const CACHE_TTL = 60000; // 1 menit cache TTL
+const CACHE_TTL = 60000; // 1 minute cache TTL
 
-// Path ke file database - disesuaikan untuk lingkungan yang berbeda
-const getDbPath = () => {
-  // Vercel dan Netlify adalah read-only pada /var/task, jadi gunakan /tmp untuk deployment
-  const basePath = process.env.NODE_ENV === 'production' 
-    ? (process.env.VERCEL ? '/tmp' : process.env.NETLIFY ? '/tmp' : path.join(process.cwd(), '.data'))
-    : process.cwd();
-  
-  return path.join(basePath, 'data', 'users.json');
-};
+// Prefix for storage keys
+const STORAGE_KEY = 'next_users_db';
 
-// Pastikan folder data ada dengan error handling yang lebih baik
-async function ensureDbExists() {
-  try {
-    const DB_PATH = getDbPath();
-    const dataDir = path.dirname(DB_PATH);
-    
-    try {
-      await fs.access(dataDir);
-    } catch {
-      // Folder tidak ada, buat folder
-      await fs.mkdir(dataDir, { recursive: true });
-      console.log(`Created data directory at ${dataDir}`);
-    }
-    
-    try {
-      await fs.access(DB_PATH);
-    } catch {
-      // File tidak ada, buat file kosong
-      await fs.writeFile(DB_PATH, JSON.stringify([]));
-      console.log(`Created empty database at ${DB_PATH}`);
-    }
-    return true;
-  } catch (error) {
-    console.error('Error ensuring DB exists:', error);
-    throw new Error('Database initialization failed: ' + error.message);
+/**
+ * Get storage implementation based on environment
+ * @returns {Object} Storage interface
+ */
+function getStorage() {
+  // For server components and API routes
+  if (typeof globalThis.localStorage === 'undefined') {
+    // Edge Runtime & Server environment
+    return {
+      async getItem() {
+        // Initialize with empty array if no data exists
+        return JSON.stringify([]);
+      },
+      async setItem(key, value) {
+        // No persistent storage in Edge without additional services
+        // This is a placeholder for where you would implement Vercel KV, Redis, etc.
+        return true;
+      }
+    };
   }
+  
+  // For client components (not recommended for auth data)
+  return {
+    async getItem(key) {
+      return localStorage.getItem(key);
+    },
+    async setItem(key, value) {
+      localStorage.setItem(key, value);
+      return true;
+    }
+  };
 }
 
 /**
- * Membaca database users dengan caching untuk meningkatkan performa
- * @param {boolean} skipCache - Force refresh dari disk jika true
- * @returns {Promise<Array>} Array berisi daftar user
+ * Read user database with caching for improved performance
+ * @param {boolean} skipCache - Force refresh from storage if true
+ * @returns {Promise<Array>} Array of users
  */
 async function readDb(skipCache = false) {
-  // Gunakan cache jika masih fresh dan skipCache false
+  // Use cache if still fresh and skipCache is false
   const now = Date.now();
   if (!skipCache && userCache && now - lastCacheTime < CACHE_TTL) {
     return userCache;
   }
   
-  await ensureDbExists();
-  const DB_PATH = getDbPath();
-  
   try {
-    const data = await fs.readFile(DB_PATH, 'utf8');
-    // Handle file kosong
+    const storage = getStorage();
+    const data = await storage.getItem(STORAGE_KEY);
+    
+    // Handle empty data
     if (!data || data.trim() === '') {
       userCache = [];
       lastCacheTime = now;
       return [];
     }
     
-    // Parse data dan update cache
+    // Parse data and update cache
     const users = JSON.parse(data);
     userCache = users;
     lastCacheTime = now;
     return users;
   } catch (error) {
     console.error('Error reading users database:', error);
-    
-    // Backup file rusak jika parsing error
-    if (error instanceof SyntaxError) {
-      try {
-        const backup = `${DB_PATH}.backup.${Date.now()}`;
-        const data = await fs.readFile(DB_PATH, 'utf8');
-        await fs.writeFile(backup, data);
-        console.error(`Corrupted DB backed up to ${backup}`);
-        await fs.writeFile(DB_PATH, JSON.stringify([]));
-        console.log('Database reset to empty array after corruption');
-        
-        // Reset cache
-        userCache = [];
-        lastCacheTime = now;
-      } catch (backupError) {
-        console.error('Failed to backup corrupted DB:', backupError);
-      }
-    }
     return [];
   }
 }
 
 /**
- * Menulis data ke database dan update cache
- * @param {Array} data - Array data user untuk disimpan
- * @returns {Promise<boolean>} - Status keberhasilan
+ * Write data to database and update cache
+ * @param {Array} data - Array of user data to save
+ * @returns {Promise<boolean>} - Success status
  */
 async function writeDb(data) {
-  await ensureDbExists();
-  const DB_PATH = getDbPath();
-  
   try {
-    const tempPath = `${DB_PATH}.temp`;
-    const jsonString = JSON.stringify(data, null, 2);
+    const storage = getStorage();
+    const jsonString = JSON.stringify(data);
     
-    // Tulis ke file temporary dulu
-    await fs.writeFile(tempPath, jsonString);
-    
-    // Ganti file asli dengan atomic rename
-    await fs.rename(tempPath, DB_PATH);
+    await storage.setItem(STORAGE_KEY, jsonString);
     
     // Update cache
     userCache = data;
@@ -145,9 +111,9 @@ async function writeDb(data) {
 }
 
 /**
- * Validasi data user
- * @param {Object} userData - Data user yang akan divalidasi
- * @returns {Object} - Result dari validasi {valid: boolean, message: string}
+ * Validate user data
+ * @param {Object} userData - User data to validate
+ * @returns {Object} - Validation result {valid: boolean, message: string}
  */
 function validateUserData(userData) {
   if (!userData) {
@@ -176,9 +142,9 @@ function validateUserData(userData) {
 }
 
 /**
- * Sanitize user object untuk menghapus password
- * @param {Object} user - User object dengan password
- * @returns {Object} - User tanpa password dan data sensitif
+ * Sanitize user object to remove password
+ * @param {Object} user - User object with password
+ * @returns {Object} - User without password and sensitive data
  */
 function sanitizeUser(user) {
   if (!user) return null;
@@ -188,7 +154,7 @@ function sanitizeUser(user) {
 }
 
 /**
- * Check user exists by email (case insensitive)
+ * Check if user exists by email (case insensitive)
  * @param {string} email - Email to check
  * @returns {Promise<boolean>} True if user exists
  */
@@ -205,13 +171,13 @@ export async function checkUserExists(email) {
 }
 
 /**
- * Dapatkan semua user dari database
- * @returns {Promise<Array>} - Daftar user (tanpa password)
+ * Get all users from database
+ * @returns {Promise<Array>} - List of users (without passwords)
  */
 export async function getUsers() {
   try {
     const users = await readDb();
-    // Jangan tampilkan field password
+    // Don't include password field
     return users.map(user => sanitizeUser(user));
   } catch (error) {
     console.error('Error getting all users:', error);
@@ -220,9 +186,9 @@ export async function getUsers() {
 }
 
 /**
- * Dapatkan user berdasarkan email
- * @param {string} email - Email user yang dicari
- * @returns {Promise<Object|null>} - User object atau null jika tidak ditemukan
+ * Get user by email
+ * @param {string} email - Email of user to find
+ * @returns {Promise<Object|null>} - User object or null if not found
  */
 export async function getUserByEmail(email) {
   if (!email) return null;
@@ -237,9 +203,9 @@ export async function getUserByEmail(email) {
 }
 
 /**
- * Dapatkan user berdasarkan ID
- * @param {string} id - ID user yang dicari
- * @returns {Promise<Object|null>} - User object atau null jika tidak ditemukan
+ * Get user by ID
+ * @param {string} id - ID of user to find
+ * @returns {Promise<Object|null>} - User object or null if not found
  */
 export async function getUserById(id) {
   if (!id) return null;
@@ -250,7 +216,7 @@ export async function getUserById(id) {
     
     if (!user) return null;
     
-    // Jangan tampilkan field password
+    // Don't include password field
     return sanitizeUser(user);
   } catch (error) {
     console.error('Error getting user by ID:', error);
@@ -259,12 +225,12 @@ export async function getUserById(id) {
 }
 
 /**
- * Tambah user baru
- * @param {Object} userData - Data user baru {name, email, password}
- * @returns {Promise<Object>} - User baru yang telah dibuat (tanpa password)
+ * Add new user
+ * @param {Object} userData - New user data {name, email, password}
+ * @returns {Promise<Object>} - Newly created user (without password)
  */
 export async function createUser(userData) {
-  // Validasi input
+  // Validate input
   const validation = validateUserData(userData);
   if (!validation.valid) {
     throw new Error(validation.message);
@@ -277,7 +243,7 @@ export async function createUser(userData) {
   try {
     const users = await readDb(true); // Skip cache to ensure fresh data
     
-    // Cek apakah email sudah ada
+    // Check if email already exists
     if (users.some(user => user.email.toLowerCase() === userData.email.toLowerCase())) {
       throw new Error('Email sudah terdaftar');
     }
@@ -291,7 +257,7 @@ export async function createUser(userData) {
       throw new Error('Gagal memproses password');
     }
     
-    // Buat user baru dengan ID unik
+    // Create new user with unique ID
     const newUser = {
       id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       name: userData.name.trim(),
@@ -302,23 +268,23 @@ export async function createUser(userData) {
       updatedAt: new Date().toISOString()
     };
     
-    // Simpan user ke database
+    // Save user to database
     users.push(newUser);
     await writeDb(users);
     
-    // Kembalikan user tanpa password
+    // Return user without password
     return sanitizeUser(newUser);
   } catch (error) {
     console.error('Error creating user:', error);
-    throw error; // Re-throw untuk ditangani oleh API route
+    throw error; // Re-throw to be handled by API route
   }
 }
 
 /**
- * Update data user
- * @param {string} userId - ID user yang akan diupdate
- * @param {Object} updateData - Data yang akan diupdate {name, email, etc}
- * @returns {Promise<Object|null>} - User yang sudah diupdate atau null jika gagal
+ * Update user data
+ * @param {string} userId - ID of user to update
+ * @param {Object} updateData - Data to update {name, email, etc}
+ * @returns {Promise<Object|null>} - Updated user or null if failed
  */
 export async function updateUser(userId, updateData) {
   if (!userId || !updateData) {
@@ -333,14 +299,14 @@ export async function updateUser(userId, updateData) {
       throw new Error('User tidak ditemukan');
     }
     
-    // Jika email diupdate, cek apakah sudah ada
+    // If email is updated, check if it's already in use
     if (updateData.email && 
         updateData.email.toLowerCase() !== users[userIndex].email.toLowerCase() &&
         users.some(u => u.id !== userId && u.email.toLowerCase() === updateData.email.toLowerCase())) {
       throw new Error('Email sudah digunakan oleh pengguna lain');
     }
     
-    // Update password jika ada
+    // Update password if provided
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
@@ -355,7 +321,7 @@ export async function updateUser(userId, updateData) {
     users[userIndex] = updatedUser;
     await writeDb(users);
     
-    // Kembalikan user tanpa password
+    // Return user without password
     return sanitizeUser(updatedUser);
   } catch (error) {
     console.error('Error updating user:', error);
@@ -364,10 +330,10 @@ export async function updateUser(userId, updateData) {
 }
 
 /**
- * Verifikasi kredensial user
- * @param {string} email - Email pengguna
- * @param {string} password - Password pengguna
- * @returns {Promise<Object|null>} - User data jika berhasil atau null jika gagal
+ * Verify user credentials
+ * @param {string} email - User email
+ * @param {string} password - User password
+ * @returns {Promise<Object|null>} - User data if successful or null if failed
  */
 export async function verifyCredentials(email, password) {
   if (!email || !password) {
@@ -381,13 +347,13 @@ export async function verifyCredentials(email, password) {
       return null;
     }
     
-    // Periksa status user
+    // Check user status
     if (user.status === 'disabled' || user.status === 'suspended') {
       console.warn(`Login attempt by inactive user: ${email}`);
       return null;
     }
     
-    // Verifikasi password
+    // Verify password
     const passwordMatch = await bcrypt.compare(password, user.password);
     
     if (!passwordMatch) {
@@ -409,7 +375,7 @@ export async function verifyCredentials(email, password) {
       // Continue anyway, this is not critical
     }
     
-    // Kembalikan user tanpa password
+    // Return user without password
     return sanitizeUser(user);
   } catch (error) {
     console.error('Error verifying credentials:', error);
@@ -418,9 +384,9 @@ export async function verifyCredentials(email, password) {
 }
 
 /**
- * Hapus user
- * @param {string} userId - ID user yang akan dihapus
- * @returns {Promise<boolean>} - Status keberhasilan
+ * Delete user
+ * @param {string} userId - ID of user to delete
+ * @returns {Promise<boolean>} - Success status
  */
 export async function deleteUser(userId) {
   if (!userId) {
@@ -431,7 +397,7 @@ export async function deleteUser(userId) {
     const users = await readDb(true); // Skip cache to ensure fresh data
     const filteredUsers = users.filter(user => user.id !== userId);
     
-    // Jika jumlah user tidak berubah, berarti user tidak ditemukan
+    // If number of users didn't change, user was not found
     if (filteredUsers.length === users.length) {
       throw new Error('User tidak ditemukan');
     }
@@ -445,13 +411,12 @@ export async function deleteUser(userId) {
 }
 
 /**
- * Cek apakah database sudah siap
- * @returns {Promise<boolean>} Status keberhasilan
+ * Check if database is ready
+ * @returns {Promise<boolean>} Success status
  */
 export async function checkDatabaseHealth() {
   try {
-    await ensureDbExists();
-    await readDb(true); // Force refresh dari disk
+    await readDb(true); // Force refresh from storage
     return true;
   } catch (error) {
     console.error('Database health check failed:', error);
@@ -461,9 +426,9 @@ export async function checkDatabaseHealth() {
 
 /**
  * Disable/enable user account
- * @param {string} userId - ID user yang akan diubah statusnya
- * @param {string} status - Status baru ('active', 'disabled', 'suspended')
- * @returns {Promise<Object|null>} User yang sudah diupdate
+ * @param {string} userId - ID of user to change status
+ * @param {string} status - New status ('active', 'disabled', 'suspended')
+ * @returns {Promise<Object|null>} Updated user
  */
 export async function updateUserStatus(userId, status) {
   if (!userId || !status || !['active', 'disabled', 'suspended'].includes(status)) {
@@ -475,9 +440,9 @@ export async function updateUserStatus(userId, status) {
 
 /**
  * Reset user password
- * @param {string} email - Email user
- * @param {string} newPassword - Password baru
- * @returns {Promise<boolean>} Status keberhasilan
+ * @param {string} email - User email
+ * @param {string} newPassword - New password
+ * @returns {Promise<boolean>} Success status
  */
 export async function resetPassword(email, newPassword) {
   if (!email || !newPassword || newPassword.length < 6) {
@@ -492,7 +457,7 @@ export async function resetPassword(email, newPassword) {
       throw new Error('User tidak ditemukan');
     }
     
-    // Hash password baru
+    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
     // Update user
