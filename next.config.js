@@ -4,11 +4,11 @@ const nextConfig = {
   swcMinify: true,
   output: 'standalone', // Optimized for Netlify/Vercel deployment
 
-  // Mengaktifkan App Router agar API Routes di dalam `app/api/` bisa berjalan
+  // Hapus konfigurasi yang tidak valid
   experimental: {
-    appDir: true, // Wajib untuk API Routes di Next.js 13+
-    serverActions: true,
-    serverComponentsExternalPackages: ['bcryptjs'], // Package CPU-intensif di server
+    // appDir sudah default di Next.js 14
+    // serverActions sudah tersedia secara default
+    serverComponentsExternalPackages: [], // Hapus bcryptjs karena tidak digunakan lagi
   },
 
   // Enhanced security headers for authentication
@@ -21,10 +21,6 @@ const nextConfig = {
           {
             key: 'X-DNS-Prefetch-Control',
             value: 'on',
-          },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload',
           },
           {
             key: 'X-XSS-Protection',
