@@ -10,39 +10,34 @@
  * Compatible with Vercel and Netlify serverless environments.
  */
 
-// Global in-memory storage for Edge Runtime (perbaikan paling penting)
-// Mencegah data hilang antar request selama server berjalan
-const EDGE_RUNTIME_STORAGE = {
+// Global in-memory storage for Edge Runtime to ensure persistence
+// This prevents data loss between requests while the server is running
+global.EDGE_RUNTIME_STORAGE = global.EDGE_RUNTIME_STORAGE || {
   next_users_db: JSON.stringify([])
 };
 
-// Simple string hash function yang bekerja di Edge Runtime
-// Tidak menggunakan module crypto sama sekali
+// Simple string hash function that works in Edge Runtime
+// Does not use crypto module at all for compatibility
 async function hashPassword(password) {
   if (!password) return '';
   
-  // Implementasi hash sederhana untuk demo
-  // Untuk produksi sebaiknya gunakan library yang aman
+  // Use a consistent salt that doesn't change between server restarts
+  const salt = 'vercel-edge-runtime-salt-2025';
+  const saltedPassword = password + salt;
+  
+  // Simple but consistent hashing algorithm
   let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
+  for (let i = 0; i < saltedPassword.length; i++) {
+    const char = saltedPassword.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32bit integer
   }
   
-  // Buat hash lebih kompleks dengan salt
-  const salt = 'vercel-edge-' + (new Date().getFullYear());
-  const saltedHash = hash + salt;
-  
-  // Convert ke string hex
-  return Array.from(saltedHash.toString())
-    .reduce((str, char) => {
-      const hex = char.charCodeAt(0).toString(16);
-      return str + hex;
-    }, '');
+  // Convert to hex string for storage
+  return hash.toString(16);
 }
 
-// Fungsi verifikasi password
+// Password verification function
 async function verifyPassword(password, hashedPassword) {
   const newHash = await hashPassword(password);
   return newHash === hashedPassword;
@@ -66,12 +61,12 @@ function getStorage() {
     // Edge Runtime & Server environment
     return {
       async getItem(key) {
-        // PERBAIKAN: Menggunakan EDGE_RUNTIME_STORAGE untuk menyimpan data
-        return EDGE_RUNTIME_STORAGE[key] || JSON.stringify([]);
+        // Use global.EDGE_RUNTIME_STORAGE for persistence
+        return global.EDGE_RUNTIME_STORAGE[key] || JSON.stringify([]);
       },
       async setItem(key, value) {
-        // PERBAIKAN: Menyimpan data ke EDGE_RUNTIME_STORAGE
-        EDGE_RUNTIME_STORAGE[key] = value;
+        // Store data in global.EDGE_RUNTIME_STORAGE
+        global.EDGE_RUNTIME_STORAGE[key] = value;
         return true;
       }
     };
@@ -139,6 +134,9 @@ async function writeDb(data) {
     userCache = data;
     lastCacheTime = Date.now();
     
+    // Log the write operation for debugging
+    console.log(`Database updated with ${data.length} users`);
+    
     return true;
   } catch (error) {
     console.error('Error writing users database:', error);
@@ -190,18 +188,20 @@ function sanitizeUser(user) {
 }
 
 /**
- * Menambahkan user awal jika database kosong (untuk demo)
+ * Add demo user if database is empty (for demo purposes)
+ * Always ensures there's at least one user to test with
  */
-async function seedInitialUsers() {
+async function seedDemoUser() {
   try {
-    const users = await readDb();
+    const users = await readDb(true); // Skip cache to ensure fresh data
     
-    // Jika sudah ada user, tidak perlu tambah lagi
+    // If database already has users, no need to add more
     if (users.length > 0) {
+      console.log(`Database already contains ${users.length} users, skipping demo user creation`);
       return;
     }
     
-    // Tambahkan user demo
+    // Add demo user
     const demoUser = {
       id: 'user_demo_1',
       name: 'Demo User',
@@ -212,16 +212,17 @@ async function seedInitialUsers() {
       updatedAt: new Date().toISOString()
     };
     
-    console.log('Menambahkan user demo ke database');
+    console.log('Adding demo user to database');
     users.push(demoUser);
     await writeDb(users);
+    console.log('Demo user added successfully');
   } catch (error) {
-    console.error('Error seeding initial users:', error);
+    console.error('Error seeding demo user:', error);
   }
 }
 
-// Jalankan seeding saat module di-import
-seedInitialUsers().catch(console.error);
+// Run seeding when module is imported
+seedDemoUser().catch(console.error);
 
 /**
  * Check if user exists by email (case insensitive)
@@ -265,7 +266,7 @@ export async function getUserByEmail(email) {
   
   try {
     const users = await readDb();
-    // PERBAIKAN: Memastikan email dinormalisasi
+    // Ensure email is normalized
     const normalizedEmail = email.trim().toLowerCase();
     const user = users.find(user => user.email.toLowerCase() === normalizedEmail) || null;
     return user;
@@ -316,7 +317,7 @@ export async function createUser(userData) {
   try {
     const users = await readDb(true); // Skip cache to ensure fresh data
     
-    // PERBAIKAN: Pastikan email dinormalisasi
+    // Ensure email is normalized
     const normalizedEmail = userData.email.trim().toLowerCase();
     
     // Check if email already exists
@@ -344,15 +345,15 @@ export async function createUser(userData) {
       updatedAt: new Date().toISOString()
     };
     
-    console.log('Menambahkan user baru:', newUser.email);
+    console.log('Adding new user:', newUser.email);
     
     // Save user to database
     users.push(newUser);
     await writeDb(users);
     
-    // PERBAIKAN: Dump database setelah register untuk debug
+    // Debug: Dump database after registration
     const updatedUsers = await readDb(true);
-    console.log(`Database sekarang berisi ${updatedUsers.length} user(s)`);
+    console.log(`Database now contains ${updatedUsers.length} user(s)`);
     
     // Return user without password
     return sanitizeUser(newUser);
@@ -423,7 +424,7 @@ export async function verifyCredentials(email, password) {
   }
   
   try {
-    // PERBAIKAN: Pastikan email dinormalisasi
+    // Ensure email is normalized
     const normalizedEmail = email.trim().toLowerCase();
     console.log('Verifying credentials for:', normalizedEmail);
     
@@ -567,7 +568,7 @@ export function clearCache() {
   lastCacheTime = 0;
 }
 
-// Expor fungsi lain yang mungkin Anda butuhkan
+// Export other functions you might need
 export function debugDumpUsers() {
   return readDb(true).then(users => {
     return users.map(user => ({
