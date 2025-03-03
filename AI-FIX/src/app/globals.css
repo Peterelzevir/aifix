@@ -1,0 +1,279 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Prism Theme */
+@import '../styles/prism-theme.css';
+
+:root {
+  /* Black & White Modern Theme */
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 0, 0, 0;
+  --accent-color: 99, 102, 241;
+  --accent-light-color: 129, 140, 248;
+}
+
+/* Ensure proper pinch zoom behavior on mobile */
+@viewport {
+  width: device-width;
+  zoom: 1.0;
+}
+
+* {
+  /* Optimize for mobile performance */
+  -webkit-tap-highlight-color: transparent;
+  /* Better touch behavior */
+  touch-action: manipulation;
+}
+
+html {
+  /* Allow zooming */
+  touch-action: manipulation;
+  -ms-content-zooming: zoom;
+  -ms-touch-action: pan-x pan-y;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background-color: rgb(var(--background-rgb));
+  min-height: 100vh;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar - thinner for mobile */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--accent-color), 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--accent-color), 0.7);
+}
+
+/* Make scrollbar a bit wider on desktop */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+}
+
+/* Chat Bubble Animations - optimized for better performance */
+.chat-bubble-appear {
+  opacity: 0;
+  transform: translateY(5px);
+  animation: bubbleAppear 0.2s forwards;
+}
+
+@keyframes bubbleAppear {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Typing animation - perfectly sized dots */
+.typing-animation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.typing-animation span {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background-color: rgba(var(--accent-color), 1);
+  border-radius: 50%;
+}
+
+@media (min-width: 768px) {
+  .typing-animation span {
+    width: 6px;
+    height: 6px;
+    gap: 3px;
+  }
+}
+
+.typing-animation span:nth-child(1) {
+  animation: typing 1s infinite 0.1s;
+}
+.typing-animation span:nth-child(2) {
+  animation: typing 1s infinite 0.2s;
+}
+.typing-animation span:nth-child(3) {
+  animation: typing 1s infinite 0.3s;
+}
+
+@keyframes typing {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* AI thinking animation - optimized for better performance */
+.ai-thinking {
+  position: relative;
+  width: 60px;
+  height: 20px;
+  margin: 0 auto;
+}
+
+.ai-thinking div {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(var(--accent-color), 1);
+  animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+
+.ai-thinking div:nth-child(1) {
+  left: 6px;
+  animation: ai-thinking1 0.6s infinite;
+}
+
+.ai-thinking div:nth-child(2) {
+  left: 6px;
+  animation: ai-thinking2 0.6s infinite;
+}
+
+.ai-thinking div:nth-child(3) {
+  left: 26px;
+  animation: ai-thinking2 0.6s infinite;
+}
+
+.ai-thinking div:nth-child(4) {
+  left: 46px;
+  animation: ai-thinking3 0.6s infinite;
+}
+
+@keyframes ai-thinking1 {
+  0% {
+    transform: scale(0);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes ai-thinking3 {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0);
+  }
+}
+
+@keyframes ai-thinking2 {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(20px, 0);
+  }
+}
+
+/* Shadow glow - soft and elegant */
+.shadow-glow {
+  box-shadow: 0 0 15px rgba(var(--accent-color), 0.2);
+}
+
+.shadow-glow:hover {
+  box-shadow: 0 0 20px rgba(var(--accent-color), 0.4);
+}
+
+/* Loading spinner animation */
+@keyframes spinner {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-spinner {
+  animation: spinner 0.8s linear infinite;
+}
+
+/* Page transition effects */
+.page-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Utility classes for common patterns */
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-50 to-accent-light;
+}
+
+.button-hover {
+  @apply transition-all duration-200 hover:shadow-glow;
+}
+
+/* Focus styles that maintain the black and white aesthetic */
+*:focus-visible {
+  outline: 2px solid rgba(var(--accent-color), 0.5);
+  outline-offset: 2px;
+}
+
+/* Improve text readability */
+.prose {
+  @apply text-primary-200 leading-relaxed;
+}
+
+.prose strong {
+  @apply text-primary-50 font-semibold;
+}
+
+.prose a {
+  @apply text-accent hover:text-accent-light underline;
+}
+
+/* Chat interface specific styles */
+.chat-container {
+  @apply max-w-4xl mx-auto bg-primary-800 rounded-xl shadow-lg overflow-hidden border border-primary-700/50;
+}
+
+.chat-message {
+  @apply px-4 py-3 rounded-lg;
+}
+
+.chat-message-user {
+  @apply bg-accent/10 text-primary-50;
+}
+
+.chat-message-bot {
+  @apply bg-primary-800 text-primary-50;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .mobile-optimize {
+    @apply text-sm;
+  }
+  
+  .mobile-padding {
+    @apply px-3 py-2;
+  }
+}
