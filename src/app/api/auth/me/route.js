@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { jwtVerify, SignJWT } from 'jose';
-import { getUserById, debugDumpUsers } from '@/lib/db';
+import { getUserById, debugDumpUsers, getUserByEmail } from '@/lib/db';
 
 // Prevent caching for this route
 export const dynamic = 'force-dynamic';
@@ -138,7 +138,21 @@ export async function GET(request) {
     let user;
     try {
       console.log('Getting user data for ID:', payload.id);
+      
+      // Coba dapatkan user dari ID
       user = await getUserById(payload.id);
+      
+      // Jika gagal, coba dapatkan dari email sebagai fallback
+      if (!user && payload.email) {
+        console.log('User not found by ID, trying by email:', payload.email);
+        const userWithPassword = await getUserByEmail(payload.email);
+        if (userWithPassword) {
+          // Sanitasi password
+          const { password, ...userWithoutPassword } = userWithPassword;
+          user = userWithoutPassword;
+        }
+      }
+      
       console.log('User data retrieved:', user ? 'Success' : 'Not found');
     } catch (dbError) {
       console.error('Database error when fetching user:', dbError);
@@ -213,7 +227,7 @@ export async function GET(request) {
       });
       
       // Also include the new token in the response for API clients
-      response.json.token = refreshedToken;
+      response._json.token = refreshedToken;
     }
     
     // Add security headers
